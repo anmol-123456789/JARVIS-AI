@@ -1,0 +1,176 @@
+import pyttsx3
+import speech_recognition as sr
+import datetime
+import wikipedia
+import webbrowser
+import os
+import smtplib
+import pywhatkit
+
+engine = pyttsx3.init('sapi5')
+voices = engine.getProperty('voices')
+# print(voices[1].id)
+engine.setProperty('voice', voices[0].id)
+
+
+def speak(audio):
+    engine.say(audio)
+    engine.runAndWait()
+
+
+def wishme():
+    hour = int(datetime.datetime.now().hour)
+    if hour >= 0 and hour < 12:
+        speak("Hope you ate your breakfast sir! , good morning")
+
+    elif hour >= 12 and hour < 18:
+        speak("how was your lunch sir? , Good Afternoon!")
+
+    else:
+        speak("Good Evening sir!!, hope you had a good day!")
+
+    speak("I am Jarvis , how can i be of service")
+
+
+def takecommand():
+    # It takes microphone input from the user and returns string output
+
+    r = sr.Recognizer()
+    with sr.Microphone() as source:
+        print("Listening...")
+        r.pause_threshold = 1
+        audio = r.listen(source, timeout=3, phrase_time_limit=7)
+
+    try:
+        print("Recognizing...")
+        query = r.recognize_google(audio, language='en-in')
+        print(f"User said: {query}\n")
+
+    except Exception as e:
+        # print(e)
+        print("Say that again please...")
+        return "None"
+    return query
+
+
+def sendEmail(to, content):
+    server = smtplib.SMTP('smtp.gmail.com', 587)
+    server.ehlo()
+    server.starttls()
+    server.login('youremail@gmail.com', 'password')
+    server.sendmail('youremail@gmail.com', to, content)
+    server.close()
+
+
+if __name__ == "__main__":
+    wishme()
+    while True:
+        # if 1:
+        query = takecommand().lower()
+
+        # Logic for executing tasks based on query
+        if 'wikipedia' in query:
+            speak('Searching Wikipedia...')
+            query = query.replace("wikipedia", "")
+            results = wikipedia.summary(query, sentences=2)
+            speak("According to Wikipedia")
+            print(results)
+            speak(results)
+
+        elif 'open youtube' in query:
+            webbrowser.open("youtube.com")
+
+        elif 'open stackoverflow' in query:
+            webbrowser.open("stackoverflow.com")
+
+        elif 'open revenge' in query:
+            webbrowser.open("venge.io")
+
+        elif 'open repuls' in query:
+            webbrowser.open("stackoverflow.com")
+
+        elif 'open poki' in query:
+            webbrowser.open("poki.com")
+
+        elif 'who are you' in query:
+            stMsgs = ['I am jarvis , an ai inspired by the real jarvis made by Tony stark, aka iron man.']
+            speak(stMsgs)
+
+        elif 'Who is your developer' in query:
+            stMsgs = ['I am developed by {YourName}']
+            speak(stMsgs)
+
+        elif 'Language' in query:
+            stMsgs = ['I was developed using python 3 point 1 0 and pycharm']
+            speak(stMsgs)
+
+        elif 'open browser' in query:
+            speak("sir, what should i search on google")
+            cm = takecommand().lower()
+            webbrowser.open(f"{cm}")
+
+        elif 'play music' in query:
+            music_dir = '"your music folder"'
+            songs = os.listdir(music_dir)
+            print(songs)
+            os.startfile(os.path.join(music_dir, songs[0]))
+
+        elif 'the time' in query:
+            strTime = datetime.datetime.now().strftime("%H:%M:%S")
+            speak(f"Sir, the time is {strTime}")
+
+        elif 'open python' in query:
+            codePath = "C:\\Program Files\\JetBrains\\PyCharm Community Edition 2021.3\\bin\\pycharm64.exe"
+            os.startfile(codePath)
+
+        elif 'open command prompt' in query:
+            os.system("start cmd")
+
+        elif 'email to aditi' in query:
+            try:
+                speak("What should I say?")
+                content = takecommand()
+                to = "anmol.n.aditi@gmail.com"
+                sendEmail(to, content)
+                speak("Email has been sent!")
+            except Exception as e:
+                print(e)
+                speak("Sorry. I am not able to send this email")
+
+       
+        elif 'wikipedia' in query:
+            speak("Searching in progress , sir")
+            query = query.replace("wikipedia", "")
+            results = wikipedia.summary(query, sentences=2)
+            speak("according to wikipedia")
+            print(results)
+            print(results)
+
+        elif "triggered" in query:
+            pywhatkit.playonyt("Granny ki Train Chura Li😂 | Granny 3 Train Escape")
+
+        elif "comedy" in query:
+            pywhatkit.playonyt("Terrible Advertising Tricks - Naaptol")
+
+        elif "gta" in query:
+            pywhatkit.playonyt("Phir Hera Pheri in GTA 5! (Comedy)")
+
+        elif "beluga" in query:
+            pywhatkit.playonyt("When Mom asks you to play your music...")
+
+        elif "fortnite skin" in query:
+            pywhatkit.playonyt("lazarbeam skin is BROKEN")
+
+        elif "fortnite " in query:
+            pywhatkit.playonyt("i WON without moving")
+
+        elif 'jarvis quit' in query or 'exit' in query or 'close' in query or 'farewell' in query:
+            speak("ok sir , enjoy your day . also remember to complete your work")
+            exit()
+
+        elif 'shutdown the PC' in query:
+            choice = input("Please confirm to shutdown the pc (y or n)")
+            if choice == 'n':
+                exit()
+            else:
+                os.system("shutdown /s")
