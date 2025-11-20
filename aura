@@ -1,0 +1,956 @@
+import edge_tts
+import asyncio
+import pygame
+import io
+import threading
+import speech_recognition as sr
+import datetime
+import webbrowser
+import os
+import psutil
+import time
+import random
+import pyautogui
+import cv2
+import mediapipe as mp
+import numpy as np
+import wikipedia
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+import requests
+import json
+import queue
+
+# ==================== CONFIGURATION ====================
+CONFIG = {
+    'email': 'youremail@gmail.com',
+    'email_password': 'your_app_password',
+    'music_dir': 'C:\\Music',
+    'city': 'London',
+    'voice_timeout': 8,
+    'phrase_timeout': 10,
+    'energy_threshold': 300,
+    'dynamic_energy_ratio': 1.5,
+    'pause_threshold': 0.8,
+    'assistant_name': 'Aura',
+    'user_name': 'Boss'
+}
+
+# ==================== PERSONALITY SYSTEM ====================
+class AuraPersonality:
+    def __init__(self):
+        self.mood = "cheerful"
+        self.user_name = CONFIG['user_name']
+        self.conversation_history = []
+        self.joke_count = 0
+        self.compliments = [
+            "You're doing great today!",
+            "I'm always impressed by your commands!",
+            "You make this so enjoyable!",
+            "Your voice is crystal clear today!",
+            "I love working with you!"
+        ]
+        self.jokes = [
+            "Why don't scientists trust atoms? Because they make up everything!",
+            "Why did the scarecrow win an award? He was outstanding in his field!",
+            "Why don't eggs tell jokes? They'd crack each other up!",
+            "What do you call a fake noodle? An impasta!",
+            "Why did the math book look so sad? Because it had too many problems!"
+        ]
+        self.greetings = [
+            "Hey there! Ready for some awesome tasks?",
+            "Hello! What magic shall we create today?",
+            "Hi! I'm here and excited to help!",
+            "Greetings! Your wish is my command!",
+            "Hey! Ready to be productive together?"
+        ]
+        self.farewells = [
+            "Until next time! Remember, I'm always here for you!",
+            "Signing off! Can't wait to help you again soon!",
+            "Goodbye! You're amazing, don't forget that!",
+            "Shutting down! It was a pleasure serving you!",
+            "Farewell! Looking forward to our next chat!"
+        ]
+
+    def get_greeting(self):
+        return random.choice(self.greetings)
+
+    def get_farewell(self):
+        return random.choice(self.farewells)
+
+    def get_compliment(self):
+        return random.choice(self.compliments)
+
+    def get_joke(self):
+        self.joke_count += 1
+        return random.choice(self.jokes)
+
+    def personalize_response(self, response):
+        """Add personality to responses"""
+        if random.random() < 0.2:
+            response += f" {self.get_compliment()}"
+        
+        if random.random() < 0.15 and self.user_name:
+            response = response.replace("you", self.user_name)
+            
+        return response
+
+    def get_motivational_quote(self):
+        quotes = [
+            "The only way to do great work is to love what you do.",
+            "Innovation distinguishes between a leader and a follower.",
+            "Don't let the noise of others' opinions drown out your own inner voice.",
+            "Your time is limited, so don't waste it living someone else's life.",
+            "Stay hungry, stay foolish."
+        ]
+        return random.choice(quotes)
+
+# ==================== SPEECH MANAGEMENT SYSTEM ====================
+class SpeechManager:
+    def __init__(self):
+        self.is_speaking = False
+        self.speech_lock = threading.Lock()
+        self.speech_queue = queue.Queue()
+        self.voice_system = EnhancedAuraVoice()
+        
+    def speak(self, text):
+        """Main speak function that manages speech queue and microphone pausing"""
+        if not text or text.strip() == "":
+            return
+            
+        print(f"🌟 AURA: {text}")
+        
+        # Add to speech queue
+        self.speech_queue.put(text)
+        
+        # Start speech thread if not already running
+        if not self.is_speaking:
+            self._start_speech_thread()
+    
+    def _start_speech_thread(self):
+        """Start the speech processing thread"""
+        def process_speech():
+            while not self.speech_queue.empty():
+                with self.speech_lock:
+                    self.is_speaking = True
+                
+                text = self.speech_queue.get()
+                try:
+                    # This will block until speech is complete
+                    asyncio.run(self.voice_system.async_speak(text))
+                except Exception as e:
+                    print(f"🔇 Speech error: {e}")
+                
+                self.speech_queue.task_done()
+                time.sleep(0.1)  # Small delay between speech items
+            
+            with self.speech_lock:
+                self.is_speaking = False
+        
+        speech_thread = threading.Thread(target=process_speech)
+        speech_thread.daemon = True
+        speech_thread.start()
+    
+    def wait_until_finished(self):
+        """Wait until all speech is finished"""
+        self.speech_queue.join()
+    
+    def is_currently_speaking(self):
+        """Check if currently speaking"""
+        with self.speech_lock:
+            return self.is_speaking
+
+# ==================== ENHANCED VOICE SYSTEM ====================
+class EnhancedAuraVoice:
+    def __init__(self):
+        pygame.mixer.init()
+        self.voice = "en-GB-SoniaNeural"
+        
+    async def async_speak(self, text):
+        """Enhanced TTS with better audio handling"""
+        try:
+            # Split long text into chunks for better responsiveness
+            if len(text) > 200:
+                chunks = self._split_text(text)
+            else:
+                chunks = [text]
+                
+            for chunk in chunks:
+                communicate = edge_tts.Communicate(chunk, self.voice)
+                audio_data = io.BytesIO()
+                
+                async for chunk_data in communicate.stream():
+                    if chunk_data["type"] == "audio":
+                        audio_data.write(chunk_data["data"])
+                
+                audio_data.seek(0)
+                pygame.mixer.music.load(audio_data, "mp3")
+                pygame.mixer.music.play()
+                
+                # Wait for playback to complete
+                while pygame.mixer.music.get_busy():
+                    await asyncio.sleep(0.05)
+                    
+        except Exception as e:
+            print(f"🔇 Voice error: {e}")
+
+    def _split_text(self, text):
+        """Split long text into manageable chunks"""
+        sentences = text.split('. ')
+        chunks = []
+        current_chunk = ""
+        
+        for sentence in sentences:
+            if len(current_chunk + sentence) < 200:
+                current_chunk += sentence + ". "
+            else:
+                if current_chunk:
+                    chunks.append(current_chunk.strip())
+                current_chunk = sentence + ". "
+        
+        if current_chunk:
+            chunks.append(current_chunk.strip())
+            
+        return chunks
+
+# ==================== BLINK DETECTION SYSTEM ====================
+class BlinkControl:
+    def __init__(self):
+        self.mp_face_mesh = mp.solutions.face_mesh
+        self.face_mesh = self.mp_face_mesh.FaceMesh(
+            max_num_faces=1,
+            refine_landmarks=True,
+            min_detection_confidence=0.5,
+            min_tracking_confidence=0.5
+        )
+        self.last_blink_time = 0
+        self.blink_count = 0
+        self.double_blink_threshold = 0.8
+        self.is_enabled = True
+        self.camera = None
+
+    def start_camera(self):
+        """Start camera for blink detection"""
+        if self.is_enabled and self.camera is None:
+            self.camera = cv2.VideoCapture(0)
+            if self.camera.isOpened():
+                self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                return True
+        return False
+
+    def stop_camera(self):
+        """Stop camera to save resources"""
+        if self.camera:
+            self.camera.release()
+            self.camera = None
+
+    def toggle_blink_detection(self):
+        """Toggle blink detection on/off"""
+        self.is_enabled = not self.is_enabled
+        if self.is_enabled:
+            self.start_camera()
+            return "Blink detection activated! Double blink to open settings."
+        else:
+            self.stop_camera()
+            return "Blink detection deactivated. Say 'enable blink' to turn it back on."
+
+    def calculate_ear(self, landmarks, eye_points):
+        """Calculate Eye Aspect Ratio for blink detection"""
+        h1 = np.linalg.norm(np.array([landmarks[eye_points[0]].x, landmarks[eye_points[0]].y]) -
+                            np.array([landmarks[eye_points[1]].x, landmarks[eye_points[1]].y]))
+        h2 = np.linalg.norm(np.array([landmarks[eye_points[2]].x, landmarks[eye_points[2]].y]) -
+                            np.array([landmarks[eye_points[3]].x, landmarks[eye_points[3]].y]))
+
+        v1 = np.linalg.norm(np.array([landmarks[eye_points[4]].x, landmarks[eye_points[4]].y]) -
+                            np.array([landmarks[eye_points[5]].x, landmarks[eye_points[5]].y]))
+        v2 = np.linalg.norm(np.array([landmarks[eye_points[6]].x, landmarks[eye_points[6]].y]) -
+                            np.array([landmarks[eye_points[7]].x, landmarks[eye_points[7]].y]))
+
+        ear = (v1 + v2) / (2.0 * max(h1, h2))
+        return ear
+
+    def detect_double_blink(self, landmarks):
+        """Detect rapid double blink"""
+        if not self.is_enabled:
+            return False
+
+        left_eye = [33, 133, 160, 144, 158, 153, 362, 385]
+        right_eye = [362, 263, 387, 373, 386, 374, 33, 133]
+
+        left_ear = self.calculate_ear(landmarks, left_eye)
+        right_ear = self.calculate_ear(landmarks, right_eye)
+        avg_ear = (left_ear + right_ear) / 2.0
+
+        current_time = time.time()
+
+        if avg_ear < 0.2:
+            if current_time - self.last_blink_time > 0.2:
+                self.blink_count += 1
+                self.last_blink_time = current_time
+                print(f"👁️ Blink detected! Count: {self.blink_count}")
+
+        if self.blink_count >= 2:
+            if current_time - self.last_blink_time < self.double_blink_threshold:
+                self.blink_count = 0
+                return True
+
+        if current_time - self.last_blink_time > self.double_blink_threshold:
+            self.blink_count = 0
+
+        return False
+
+    def process_frame(self):
+        """Process camera frame for blink detection"""
+        if not self.is_enabled or self.camera is None:
+            return False
+
+        ret, frame = self.camera.read()
+        if not ret:
+            return False
+
+        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        results = self.face_mesh.process(rgb_frame)
+
+        if results.multi_face_landmarks:
+            for face_landmarks in results.multi_face_landmarks:
+                if self.detect_double_blink(face_landmarks.landmark):
+                    return True
+        return False
+
+# ==================== ON-DEMAND GESTURE CONTROL ====================
+class OnDemandGestureControl:
+    def __init__(self):
+        self.mp_hands = mp.solutions.hands
+        self.hands = None
+        self.is_active = False
+
+    def start_gesture_control(self):
+        """Start gesture control ONLY when called"""
+        self.is_active = True
+        self.hands = self.mp_hands.Hands(
+            static_image_mode=False,
+            max_num_hands=1,
+            min_detection_confidence=0.8,
+            min_tracking_confidence=0.8
+        )
+
+        cap = cv2.VideoCapture(0)
+        speech_manager.speak("Gesture control activated! Show me your hand and make a fist to open Google, or pinch to open file explorer!")
+
+        last_gesture_time = 0
+
+        while self.is_active:
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            frame = cv2.flip(frame, 1)
+            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+            results = self.hands.process(rgb_frame)
+            detected_gesture = "NO_GESTURE"
+
+            if results.multi_hand_landmarks:
+                for hand_landmarks in results.multi_hand_landmarks:
+                    mp.solutions.drawing_utils.draw_landmarks(frame, hand_landmarks, self.mp_hands.HAND_CONNECTIONS)
+
+                    landmarks = hand_landmarks.landmark
+                    thumb_tip = landmarks[4]
+                    index_tip = landmarks[8]
+
+                    thumb_index_dist = ((thumb_tip.x - index_tip.x) ** 2 + (thumb_tip.y - index_tip.y) ** 2) ** 0.5
+
+                    if thumb_index_dist < 0.05:
+                        detected_gesture = "PINCH"
+                    elif all(landmarks[i].y > landmarks[0].y for i in [8, 12, 16, 20]):
+                        detected_gesture = "FIST"
+
+                    current_time = time.time()
+                    if detected_gesture != "NO_GESTURE" and current_time - last_gesture_time > 2:
+                        last_gesture_time = current_time
+
+                        if detected_gesture == "PINCH":
+                            os.system('explorer')
+                            speech_manager.speak("Opening file explorer for you!")
+                        elif detected_gesture == "FIST":
+                            webbrowser.open('https://google.com')
+                            speech_manager.speak("Opening Google! Your search awaits!")
+
+            cv2.putText(frame, f"GESTURE: {detected_gesture}", (50, 50),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
+            cv2.putText(frame, "Press Q to exit gesture mode", (50, 100),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+
+            cv2.imshow('🎯 AURA GESTURE CONTROL - Press Q to exit', frame)
+
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+
+        cap.release()
+        cv2.destroyAllWindows()
+        self.is_active = False
+        self.hands = None
+        speech_manager.speak("Gesture control deactivated. Back to voice commands!")
+
+# ==================== ADVANCED MICROPHONE SETUP ====================
+class AdvancedMicrophone:
+    def __init__(self):
+        self.recognizer = sr.Recognizer()
+        self.best_mic_index = 0
+        
+    def analyze_microphones(self):
+        """Advanced microphone analysis with audio quality scoring"""
+        print("🎯 Analyzing available microphones...")
+        mics = sr.Microphone.list_microphone_names()
+        mic_scores = []
+        
+        for i, name in enumerate(mics):
+            score = 0
+            try:
+                with sr.Microphone(device_index=i) as source:
+                    print(f"🔊 Testing {name}...", end="")
+                    
+                    self.recognizer.adjust_for_ambient_noise(source, duration=2)
+                    audio = self.recognizer.listen(source, timeout=3, phrase_time_limit=2)
+                    
+                    audio_data = np.frombuffer(audio.get_raw_data(), dtype=np.int16)
+                    rms = np.sqrt(np.mean(audio_data**2))
+                    clarity = np.std(audio_data) / (np.abs(np.mean(audio_data)) + 1e-5)
+                    
+                    score = rms * clarity
+                    mic_scores.append((i, name, score))
+                    print(f" ✅ Score: {score:.2f}")
+                    
+            except Exception as e:
+                print(f" ❌ Failed: {e}")
+                mic_scores.append((i, name, 0))
+        
+        if mic_scores:
+            best_mic = max(mic_scores, key=lambda x: x[2])
+            self.best_mic_index = best_mic[0]
+            print(f"🎤 Selected: {best_mic[1]} (Score: {best_mic[2]:.2f})")
+            return best_mic[0]
+        return 0
+
+    def calibrate_audio_settings(self):
+        """Calibrate audio settings for optimal performance"""
+        print("🎚️ Calibrating audio settings...")
+        
+        with sr.Microphone(device_index=self.best_mic_index) as source:
+            self.recognizer.adjust_for_ambient_noise(source, duration=3)
+            
+            self.recognizer.energy_threshold = CONFIG['energy_threshold']
+            self.recognizer.dynamic_energy_threshold = True
+            self.recognizer.dynamic_energy_adjustment_damping = 0.15
+            self.recognizer.dynamic_energy_ratio = CONFIG['dynamic_energy_ratio']
+            self.recognizer.pause_threshold = CONFIG['pause_threshold']
+            self.recognizer.operation_timeout = None
+            
+            print(f"✅ Energy threshold: {self.recognizer.energy_threshold}")
+            print(f"✅ Pause threshold: {self.recognizer.pause_threshold}")
+            return self.best_mic_index
+
+# ==================== INTELLIGENT VOICE ACTIVATION ====================
+class IntelligentActivation:
+    def __init__(self):
+        self.activation_keywords = ["aura", "hey aura", "okay aura", "listen aura", "wake up", "hello aura"]
+        self.confidence_threshold = 0.7
+        self.is_active = True
+        self.last_activation = time.time()
+        self.activation_timeout = 30
+        self.context_memory = []
+        self.personality = AuraPersonality()
+        
+    def check_activation(self, query, confidence=0.5):
+        """Enhanced activation with personality"""
+        current_time = time.time()
+        
+        if confidence > self.confidence_threshold and any(keyword in query for keyword in self.activation_keywords):
+            self.is_active = True
+            self.last_activation = current_time
+            self.context_memory.append(("user", query))
+            
+            activation_responses = [
+                "Yes, I'm here and ready!",
+                "I'm listening! What can I do for you?",
+                "Ready to assist!",
+                "Here I am! What's on your mind?",
+                "Awake and ready! How can I help?"
+            ]
+            speech_manager.speak(random.choice(activation_responses))
+            return True
+            
+        if self.is_active and current_time - self.last_activation < 5:
+            self.last_activation = current_time
+            return True
+            
+        return False
+
+    def check_timeout(self):
+        """Smart timeout with personality"""
+        if self.is_active and time.time() - self.last_activation > self.activation_timeout:
+            if time.time() - self.last_activation > self.activation_timeout + 10:
+                self.is_active = False
+                speech_manager.speak(self.personality.get_farewell())
+            return True
+        return False
+
+    def update_activity(self):
+        """Update activity timestamp"""
+        self.last_activation = time.time()
+
+# ==================== ADVANCED SPEECH RECOGNITION ====================
+class AdvancedSpeechRecognition:
+    def __init__(self, microphone):
+        self.mic = microphone
+        self.recognizer = microphone.recognizer
+        
+    def listen_with_retry(self, source, timeout=8, retries=2):
+        """Enhanced listening with retry logic - PAUSES WHEN SPEAKING"""
+        for attempt in range(retries + 1):
+            try:
+                # Wait if Aura is currently speaking
+                while speech_manager.is_currently_speaking():
+                    print("⏸️  Pausing listening while speaking...")
+                    time.sleep(0.5)
+                
+                print(f"🎤 Listening attempt {attempt + 1}...")
+                audio = self.recognizer.listen(
+                    source, 
+                    timeout=timeout, 
+                    phrase_time_limit=CONFIG['voice_timeout']
+                )
+                
+                try:
+                    query = self.recognizer.recognize_google(audio, language='en-in')
+                    confidence = 0.8
+                    print(f"✅ Heard: '{query}' (Confidence: {confidence:.2f})")
+                    return query, confidence
+                    
+                except sr.UnknownValueError:
+                    if attempt < retries:
+                        print("🔄 Retrying with different settings...")
+                        continue
+                    else:
+                        print("❓ Could not understand audio")
+                        return None, 0
+                        
+                except sr.RequestError as e:
+                    print(f"🌐 API error, trying fallback...")
+                    try:
+                        query = self.recognizer.recognize_sphinx(audio)
+                        confidence = 0.5
+                        print(f"📡 Offline recognition: '{query}'")
+                        return query, confidence
+                    except:
+                        continue
+                        
+            except sr.WaitTimeoutError:
+                print("⏰ Listening timeout")
+                return None, 0
+            except Exception as e:
+                print(f"🔇 Listening error: {e}")
+                if attempt == retries:
+                    return None, 0
+                    
+        return None, 0
+
+# ==================== PERSONALITY-ENHANCED COMMAND PROCESSING ====================
+def process_enhanced_command(query, confidence=0.8):
+    """Improved command processing with personality"""
+    
+    if confidence < 0.6:
+        unsure_responses = [
+            "I'm not quite sure I caught that. Could you repeat?",
+            "Sorry, I didn't get that. Mind trying again?",
+            "I missed that. Could you say it once more?",
+            "My ears must be acting up! Could you repeat?"
+        ]
+        speech_manager.speak(random.choice(unsure_responses))
+        return
+        
+    query_lower = query.lower()
+    personality = AuraPersonality()
+    
+    # SYSTEM COMMANDS
+    if any(word in query_lower for word in ['time', 'clock']):
+        current_time = datetime.datetime.now().strftime("%I:%M %p")
+        time_responses = [
+            f"The time is {current_time}",
+            f"It's currently {current_time}",
+            f"Right now it's {current_time}",
+            f"The clock shows {current_time}"
+        ]
+        speech_manager.speak(random.choice(time_responses))
+
+    elif any(word in query_lower for word in ['date', 'today']):
+        current_date = datetime.datetime.now().strftime("%A, %B %d, %Y")
+        date_responses = [
+            f"Today is {current_date}",
+            f"It's {current_date} today",
+            f"The date is {current_date}",
+            f"We're on {current_date}"
+        ]
+        speech_manager.speak(random.choice(date_responses))
+
+    elif any(word in query_lower for word in ['system', 'status', 'computer info']):
+        speech_manager.speak("Let me check your system status for you!")
+        cpu = psutil.cpu_percent()
+        memory = psutil.virtual_memory().percent
+        disk = psutil.disk_usage('C:/').percent
+        battery = psutil.sensors_battery()
+        battery_status = f", and your battery is at {battery.percent}%" if battery else ""
+        
+        status_responses = [
+            f"Your CPU is at {cpu}%, memory at {memory}%, disk at {disk}%{battery_status}",
+            f"System check: CPU {cpu}%, RAM {memory}%, Disk {disk}%{battery_status}",
+            f"Here's your system status: CPU {cpu}%, Memory {memory}%, Storage {disk}%{battery_status}"
+        ]
+        speech_manager.speak(random.choice(status_responses))
+
+    elif any(word in query_lower for word in ['screenshot', 'capture']):
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"aura_capture_{timestamp}.png"
+        pyautogui.screenshot(filename)
+        screenshot_responses = [
+            "Screenshot captured and saved!",
+            "Got your screen capture!",
+            "Screenshot taken successfully!",
+            "Screen captured and stored!"
+        ]
+        speech_manager.speak(random.choice(screenshot_responses))
+
+    # WEB COMMANDS
+    elif any(word in query_lower for word in ['youtube']):
+        youtube_responses = [
+            "Opening YouTube! Enjoy your videos!",
+            "Launching YouTube for you!",
+            "YouTube coming right up!",
+            "Opening YouTube! What shall we watch?"
+        ]
+        speech_manager.speak(random.choice(youtube_responses))
+        webbrowser.open("https://youtube.com")
+
+    elif any(word in query_lower for word in ['google', 'search']):
+        if 'search' in query_lower:
+            search_query = query_lower.replace('search', '').replace('google', '').strip()
+            if search_query:
+                search_responses = [
+                    f"Searching for {search_query}",
+                    f"Looking up {search_query} for you",
+                    f"Let me find information about {search_query}",
+                    f"Searching the web for {search_query}"
+                ]
+                speech_manager.speak(random.choice(search_responses))
+                webbrowser.open(f"https://google.com/search?q={search_query}")
+            else:
+                speech_manager.speak("What would you like me to search for?")
+        else:
+            google_responses = [
+                "Opening Google! The knowledge of the world awaits!",
+                "Launching Google for you!",
+                "Google is now open!",
+                "Opening Google! Ready to explore?"
+            ]
+            speech_manager.speak(random.choice(google_responses))
+            webbrowser.open("https://google.com")
+
+    # WIKIPEDIA COMMAND
+    elif 'wikipedia' in query_lower:
+        search_wikipedia(query_lower)
+
+    # MEDIA COMMANDS
+    elif any(word in query_lower for word in ['music', 'song', 'play music']):
+        music_dir = CONFIG['music_dir']
+        if os.path.exists(music_dir):
+            songs = [s for s in os.listdir(music_dir) if s.endswith(('.mp3', '.wav', '.m4a'))]
+            if songs:
+                random_song = random.choice(songs)
+                music_responses = [
+                    f"Playing {random_song} for you!",
+                    f"Let's enjoy some music! Now playing {random_song}",
+                    f"Music time! Playing {random_song}",
+                    f"Starting {random_song} for your listening pleasure!"
+                ]
+                speech_manager.speak(random.choice(music_responses))
+                os.startfile(os.path.join(music_dir, random_song))
+            else:
+                speech_manager.speak("No music files found in the music directory. Let's add some tunes!")
+        else:
+            speech_manager.speak("Music directory not found. Let me know where your music is stored!")
+
+    elif any(word in query_lower for word in ['volume up']):
+        for _ in range(5):
+            pyautogui.press('volumeup')
+        volume_responses = [
+            "Volume increased! Can you hear me better?",
+            "Turning up the volume for you!",
+            "Volume boosted!",
+            "Making it louder!"
+        ]
+        speech_manager.speak(random.choice(volume_responses))
+
+    elif any(word in query_lower for word in ['volume down']):
+        for _ in range(5):
+            pyautogui.press('volumedown')
+        volume_responses = [
+            "Volume decreased! Is that better?",
+            "Turning down the volume!",
+            "Making it quieter for you!",
+            "Volume lowered!"
+        ]
+        speech_manager.speak(random.choice(volume_responses))
+
+    elif any(word in query_lower for word in ['mute']):
+        pyautogui.press('volumemute')
+        speech_manager.speak("Volume muted! Shhh...")
+
+    # BLINK CONTROL COMMANDS
+    elif any(word in query_lower for word in ['blink off', 'disable blink', 'turn off blink']):
+        response = blink_control.toggle_blink_detection()
+        speech_manager.speak(response)
+
+    elif any(word in query_lower for word in ['blink on', 'enable blink', 'turn on blink']):
+        response = blink_control.toggle_blink_detection()
+        speech_manager.speak(response)
+
+    elif any(word in query_lower for word in ['blink', 'eye']):
+        blink_responses = [
+            "Double blink detection is running! Rapidly blink twice to open settings.",
+            "Blink control is active! Double blink for quick settings access.",
+            "Eye detection is on! Try double blinking to open system settings."
+        ]
+        status = "enabled" if blink_control.is_enabled else "disabled"
+        speech_manager.speak(f"{random.choice(blink_responses)} Currently it's {status}.")
+
+    # GESTURE CONTROL
+    elif any(word in query_lower for word in ['gesture', 'camera', 'hand control']):
+        gesture_responses = [
+            "Activating gesture control mode! Show me your hand!",
+            "Starting gesture recognition! Let's see those hand moves!",
+            "Gesture control activated! Make a fist or pinch gesture!",
+            "Entering gesture mode! Show your hand to the camera!"
+        ]
+        speech_manager.speak(random.choice(gesture_responses))
+        gesture_thread = threading.Thread(target=gesture_control.start_gesture_control)
+        gesture_thread.daemon = True
+        gesture_thread.start()
+
+    # PERSONALITY COMMANDS
+    elif any(word in query_lower for word in ['joke', 'tell joke', 'make me laugh']):
+        speech_manager.speak(personality.get_joke())
+
+    elif any(word in query_lower for word in ['motivation', 'inspire me', 'quote']):
+        speech_manager.speak(personality.get_motivational_quote())
+
+    elif any(word in query_lower for word in ['compliment', 'flatter me']):
+        speech_manager.speak(personality.get_compliment())
+
+    elif any(word in query_lower for word in ['how are you', 'how are you doing']):
+        mood_responses = [
+            "I'm feeling fantastic today! Ready to help you with anything!",
+            "I'm doing great! Being your assistant is awesome!",
+            "I'm wonderful! How are you doing today?",
+            "I'm operating at peak performance! What can I do for you?"
+        ]
+        speech_manager.speak(random.choice(mood_responses))
+
+    # HELP COMMAND
+    elif any(word in query_lower for word in ['help', 'what can you do', 'commands']):
+        help_text = """
+        I'm Aura, your personality-packed assistant! Here's what I can do:
+        
+        🎵 Media: Play music, control volume, take screenshots
+        🌐 Web: Open YouTube, Google, Wikipedia searches
+        💻 System: Check computer status, time, date
+        👋 Gestures: Hand control for browser and file explorer
+        👁️ Blink Control: Double blink to open settings (say 'blink off' to disable)
+        😊 Personality: Tell jokes, give compliments, motivational quotes
+        
+        Just ask me anything! I'm here to make your day better!
+        """
+        speech_manager.speak("Here's what I can do for you!" + help_text)
+
+    # CONVERSATIONAL RESPONSES
+    elif any(word in query_lower for word in ['hello', 'hi', 'hey']):
+        speech_manager.speak(personality.get_greeting())
+
+    elif any(word in query_lower for word in ['thank you', 'thanks']):
+        thanks_responses = [
+            "You're very welcome! It's my pleasure to help!",
+            "Anytime! I love assisting you!",
+            "You're welcome! Happy to be of service!",
+            "My pleasure! You're awesome to work with!"
+        ]
+        speech_manager.speak(random.choice(thanks_responses))
+
+    # EXIT COMMAND
+    elif any(word in query_lower for word in ['exit', 'quit', 'goodbye', 'shut down']):
+        speech_manager.speak(personality.get_farewell())
+        os._exit(0)
+
+    else:
+        unknown_responses = [
+            f"I heard: '{query}'. Try saying 'help' to see my awesome features!",
+            f"You said: '{query}'. I'm still learning! Say 'help' for my capabilities.",
+            f"I'm not sure about '{query}'. Want to know what I can do? Just say 'help'!",
+            f"'{query}'? That's new! Say 'help' to see my current superpowers!"
+        ]
+        speech_manager.speak(random.choice(unknown_responses))
+
+# ==================== WIKIPEDIA SYSTEM ====================
+def search_wikipedia(query):
+    """Search Wikipedia with personality"""
+    try:
+        wikipedia_responses = [
+            "Searching Wikipedia for you!",
+            "Let me look that up on Wikipedia!",
+            "Checking Wikipedia knowledge!",
+            "Wikipedia search incoming!"
+        ]
+        speech_manager.speak(random.choice(wikipedia_responses))
+        
+        search_query = query.replace('wikipedia', '').replace('search', '').strip()
+
+        if not search_query:
+            speech_manager.speak("What would you like me to search on Wikipedia?")
+            return
+
+        wikipedia.set_lang("en")
+        results = wikipedia.summary(search_query, sentences=2)
+
+        result_responses = [
+            "According to Wikipedia...",
+            "Here's what Wikipedia says...",
+            "Wikipedia tells us that...",
+            "I found this on Wikipedia..."
+        ]
+        speech_manager.speak(random.choice(result_responses))
+        speech_manager.speak(results)
+
+    except wikipedia.exceptions.DisambiguationError as e:
+        speech_manager.speak("There are multiple results for that. Could you be more specific?")
+    except wikipedia.exceptions.PageError:
+        speech_manager.speak("Sorry, I couldn't find any information on that topic. Try something else!")
+    except Exception as e:
+        speech_manager.speak("There was an error searching Wikipedia. Let's try something different!")
+
+# ==================== ENHANCED CONTINUOUS LISTENING ====================
+def enhanced_continuous_listen():
+    """Main listening loop with proper speech management"""
+    # Initialize components
+    mic_system = AdvancedMicrophone()
+    best_mic = mic_system.analyze_microphones()
+    mic_system.calibrate_audio_settings()
+    
+    activation_system = IntelligentActivation()
+    speech_recognizer = AdvancedSpeechRecognition(mic_system)
+    
+    # Initialize gesture and blink control
+    global gesture_control, blink_control
+    gesture_control = OnDemandGestureControl()
+    blink_control = BlinkControl()
+    
+    # Start blink detection camera if enabled
+    if blink_control.is_enabled:
+        blink_control.start_camera()
+    
+    print("🚀 Starting enhanced voice recognition with proper speech management...")
+    
+    with sr.Microphone(device_index=best_mic) as source:
+        print("🎧 Microphone ready - Listening for your commands...")
+        print("💡 Say 'Aura' to activate, or speak naturally when active")
+        print("🔇 Microphone will automatically pause when I'm speaking")
+        
+        last_status_time = time.time()
+        last_blink_check = time.time()
+        
+        while True:
+            try:
+                # Listen for voice input (this automatically pauses when speaking)
+                query, confidence = speech_recognizer.listen_with_retry(source)
+                
+                if query:
+                    # Check for activation
+                    if activation_system.check_activation(query, confidence):
+                        activation_system.update_activity()
+                        continue
+                        
+                    # Process command if active
+                    if activation_system.is_active:
+                        activation_system.update_activity()
+                        process_enhanced_command(query, confidence)
+                    else:
+                        print("💤 System inactive - waiting for activation word")
+                        
+                else:
+                    # No voice detected, check for timeout
+                    if activation_system.check_timeout():
+                        print("💤 Entering sleep mode")
+                    
+                    # Process blink detection periodically
+                    current_time = time.time()
+                    if current_time - last_blink_check > 0.5:
+                        last_blink_check = current_time
+                        if blink_control.process_frame():
+                            speech_manager.speak("Double blink detected! Opening system settings for you!")
+                            os.system('start ms-settings:')
+                            time.sleep(2)
+
+                # Periodic status update
+                if time.time() - last_status_time > 60:
+                    if activation_system.is_active:
+                        print("🟢 System active - listening for commands")
+                    else:
+                        print("🔴 System inactive - say 'Aura' to activate")
+                    last_status_time = time.time()
+                    
+            except KeyboardInterrupt:
+                print("\n🛑 Shutting down...")
+                break
+            except Exception as e:
+                print(f"💥 Unexpected error: {e}")
+                time.sleep(1)
+
+        # Clean up
+        blink_control.stop_camera()
+
+# ==================== GLOBAL INITIALIZATION ====================
+# Initialize speech manager first
+speech_manager = SpeechManager()
+
+# Global speak function for easy access
+def speak(text):
+    speech_manager.speak(text)
+
+# ==================== MAIN PROGRAM ====================
+def main():
+    print("=" * 70)
+    print("🌟 AURA - Personality-Packed AI Assistant")
+    print("🔇 FEATURE: Microphone auto-pauses during speech")
+    print("=" * 70)
+    
+    personality = AuraPersonality()
+    speak("Aura systems initializing with personality boost!")
+    time.sleep(1)
+    speak("Advanced voice recognition calibrated and ready for fun!")
+    time.sleep(1)
+    speak("Microphone pausing system activated!")
+    time.sleep(1)
+    speak(personality.get_greeting())
+    
+    print("\n🎯 ENHANCED FEATURES:")
+    print("• 😊 Personality system with jokes, compliments, and motivational quotes")
+    print("• 👁️ Blink control toggle (say 'blink off' or 'blink on')")
+    print("• 🔇 MICROPHONE PAUSING - No more talking over each other!")
+    print("• 👋 Gesture control with fun responses")
+    print("• 🎵 Media control with enthusiastic feedback")
+    print("• 💬 Conversational AI with multiple response variations")
+    print("\n💫 READY FOR SMOOTH INTERACTIONS...\n")
+    
+    enhanced_continuous_listen()
+
+if __name__ == "__main__":
+    main()
